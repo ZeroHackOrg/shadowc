@@ -29,7 +29,8 @@ jobs:
             LLVM_PREFIX=/usr/lib/llvm-19
           fi
           sudo apt-get install -y cmake build-essential python3 python3-pytest \
-            gcc-aarch64-linux-gnu strace
+            gcc-aarch64-linux-gnu strace golang-go
+          python3 -m pip install --break-system-packages cython
           echo "LLVM_PREFIX=$LLVM_PREFIX" >> "$GITHUB_ENV"
 
       - name: Configure
@@ -51,7 +52,8 @@ jobs:
         run: |
           export SHADOWC_TEST_OPTLEVEL="${{ matrix.optlevel }}"
           python3 -m pytest tests/test_obfuscation_passes.py \
-            tests/test_vault_passes.py tests/test_equivalence.py -q
+            tests/test_vault_passes.py tests/test_equivalence.py \
+            tests/test_multilang.py -q
 
       - name: Host end-to-end (community)
         run: |
@@ -108,7 +110,8 @@ jobs:
         run: |
           export ASAN_OPTIONS=detect_leaks=0
           python3 -m pytest tests/test_obfuscation_passes.py \
-            tests/test_vault_passes.py tests/test_equivalence.py -q
+            tests/test_vault_passes.py tests/test_equivalence.py \
+            tests/test_multilang.py -q
 
   gate-negative:
     runs-on: ubuntu-24.04

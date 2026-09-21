@@ -56,9 +56,19 @@ def test_force_passes_override_level_gating():
 
 
 def test_unsupported_input_raises():
-    comp = make_compiler(source="thing.py")
+    comp = make_compiler(source="thing.go")  # go has no IR front-end -> reject
     with pytest.raises(PipelineError):
-        comp._emit_ir(Path("thing.py"), None)
+        comp._emit_ir(Path("thing.go"), None)
+    comp = make_compiler(source="thing.xyz")  # unknown suffix -> reject
+    with pytest.raises(PipelineError):
+        comp._emit_ir(Path("thing.xyz"), None)
+
+
+def test_python_and_cpp_are_accepted_languages():
+    comp = make_compiler(source="mod.py")
+    assert comp._lang_of(Path("mod.py")) == "python"
+    comp = make_compiler(source="mod.cpp")
+    assert comp._lang_of(Path("mod.cpp")) == "cpp"
 
 
 def test_plugin_discovery():

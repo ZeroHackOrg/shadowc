@@ -43,8 +43,24 @@ VAULT_PASSES = (
 # syntax the pinned opt/llc cannot parse.
 _TOOL_ALIASES = {
     "clang": ["clang-18", "clang", "clang-17"],
+    "cxx": ["clang++-18", "clang++-17", "clang++"],
     "opt": ["opt-18", "opt", "opt-17"],
     "llc": ["llc-18", "llc", "llc-17"],
+}
+
+#: Source extension -> pipeline language. Only languages whose front-end can
+#: produce LLVM IR that the *same* plugin pipeline re-links are supported:
+#: C and C++ (clang/clang++ drivers) and Python (compiled C via Cython
+#: `--embed`). Go is intentionally rejected with guidance (see `_emit_ir`).
+_LANG_BY_SUFFIX = {
+    ".c": "c",
+    ".cc": "cpp",
+    ".cpp": "cpp",
+    ".cxx": "cpp",
+    ".c++": "cpp",
+    ".py": "python",
+    ".pyx": "python",
+    ".go": "go",
 }
 
 _TARGET_TRIPLES = {
@@ -68,6 +84,7 @@ class Settings:
     output: Optional[Path] = None
     target: str = "host"
     level: str = "community"  # community | enterprise | min
+    lang: str = "auto"  # auto | c | cpp | python | ir
     emit: str = "exe"  # exe | obj | ll
     seed: Optional[int] = None
     opt_level: int = 1
@@ -78,6 +95,7 @@ class Settings:
     salt: str = "ZH_COMMUNITY_DEMO_2026"
     force_passes: Optional[List[str]] = None
     manifest: Optional[Path] = None
+    link_flags: Optional[List[str]] = None
 
 
 class ShadowCompiler:
@@ -91,7 +109,8 @@ class ShadowCompiler:
     # Toolchain discovery
     # ------------------------------------------------------------------
     def _find_tool(self, name: str) -> str:
-        env = {"clang": "SHADOWC_CLANG", "opt": "SHADOWC_OPT", "llc": "SHADOWC_LLC"}.get(name)
+        env = {"clang": "SHADOWC_CLANG", "cxx": "SHADOWC_CXX",
+               "opt": "SHADOWC_OPT", "llc": "SHADOWC_LLC"}.get(name)
         if env and os.environ.get(env):
             return os.environ[env]
         for candidate in _TOOL_ALIASES[name]:
@@ -167,6 +186,7 @@ class ShadowCompiler:
         source = Path(self.s.source)
         if not source.is_file():
             raise PipelineError(f"source not found: {source}")
+        self._lang = self._lang_of(source)
 
         tmpdir = Path(tempfile.mkdtemp(prefix="shadowc-"))
         try:
@@ -201,6 +221,7 @@ class ShadowCompiler:
             "shadowc_version": VERSION,
             "source": str(source),
             "source_sha256": sha256_of(source),
+            "language": getattr(self, "_lang", "auto"),
             "target": self.s.target,
             "triple": triple or "host",
             "level": self.s.level,
@@ -235,10 +256,84 @@ class ShadowCompiler:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(manifest, indent=2) + "\n")
 
+    def _lang_of(self, source: Path) -> str:
+        """Resolves the pipeline language for a source file.
+
+        `--lang` overrides extension detection. ".ll"/".bc" input is treated as
+        already-front-ended IR ("ir").
+        """
+        if self.s.lang != "auto":
+            return self.s.lang
+        if source.suffix in (".ll", ".bc"):
+            return "ir"
+        lang = _LANG_BY_SUFFIX.get(source.suffix)
+        if lang is None:
+            if source.suffix == ".rs":
+                raise PipelineError(
+                    "Rust input requires a front-end step: compile with "
+                    "'rustc --emit=llvm-ir' and pass the .ll to shadowc."
+                )
+            raise PipelineError(f"unsupported input type: {source.suffix}")
+        return lang
+
+    def _cythonize(self, source: Path, tmpdir: Path) -> Path:
+        cython = shutil.which("cython") or shutil.which("cython3")
+        if not cython:
+            raise PipelineError(
+                "python input requires Cython: 'pip install cython' (the "
+                "compiled-C front-end for this lane)."
+            )
+        c_out = tmpdir / (source.stem + ".c")
+        cmd = [cython]
+        if source.suffix == ".py":
+            cmd.append("--embed")  # standalone main() instead of a bare module
+        cmd += [str(source), "-o", str(c_out)]
+        self._run(cmd)
+        return c_out
+
+    def _python_cflags(self) -> List[str]:
+        """Include/search flags from python3-config (headers for Python.h)."""
+        cfg = shutil.which("python3-config")
+        if not cfg:
+            raise PipelineError("python lane needs python3-dev (python3-config missing)")
+        proc = self._run([cfg, "--embed", "--cflags"], check=False)
+        if proc.returncode != 0:
+            proc = self._run([cfg, "--cflags"], check=False)
+        if proc.returncode != 0:
+            raise PipelineError("python lane needs python3-config (install python3-dev)")
+        return proc.stdout.split()
+
+    def _python_ldflags(self) -> List[str]:
+        if self.s.link_flags:
+            return list(self.s.link_flags)
+        cfg = shutil.which("python3-config")
+        if not cfg:
+            raise PipelineError("python lane needs python3-dev (python3-config missing)")
+        proc = self._run([cfg, "--embed", "--ldflags"], check=False)
+        if proc.returncode != 0:
+            proc = self._run([cfg, "--ldflags"], check=False)
+        if proc.returncode != 0:
+            raise PipelineError("python lane needs python3-config --ldflags (install python3-dev)")
+        return proc.stdout.split()
+
     def _emit_ir(self, source: Path, tmpdir: Path) -> Path:
-        suffixes = (".c", ".cc", ".cpp", ".cxx")
-        if source.suffix in suffixes:
-            out = tmpdir / "input.ll"
+        lang = getattr(self, "_lang", None) or self._lang_of(source)
+        if lang == "ir":
+            return source
+        if lang == "go":
+            raise PipelineError(
+                "Go has no clang-front-ended IR pipeline, so it cannot be "
+                "hardened in-place with shadowc. Two supported paths:\n"
+                "  1) native cgo boundary - harden the C parts with this tool "
+                "and cgo-link them (see examples/golang_cgo and docs/TESTING.md);\n"
+                "  2) experimental - emit TinyGo IR, run shadowc passes over it "
+                "and link through TinyGo's own toolchain."
+            )
+        if lang not in ("c", "cpp", "python"):
+            raise PipelineError(f"unsupported language: {lang}")
+        out = tmpdir / "input.ll"
+
+        if lang == "c":
             cmd = [
                 self.tool("clang"),
                 f"-O{self.s.opt_level}",
@@ -246,16 +341,25 @@ class ShadowCompiler:
                 "-Xclang", "-disable-O0-optnone",
                 str(source), "-o", str(out),
             ]
-            self._run(cmd)
-            return out
-        if source.suffix in (".ll", ".bc"):
-            return source
-        if source.suffix == ".rs":
-            raise PipelineError(
-                "Rust input requires an IR front-end step: compile with "
-                "'rustc --emit=llvm-ir' and pass the .ll to shadowc."
-            )
-        raise PipelineError(f"unsupported input type: {source.suffix}")
+        elif lang == "cpp":
+            cmd = [
+                self.tool("cxx"),
+                f"-O{self.s.opt_level}",
+                "-S", "-emit-llvm",
+                "-Xclang", "-disable-O0-optnone",
+                str(source), "-o", str(out),
+            ]
+        else:  # python
+            c = self._cythonize(source, tmpdir)
+            cmd = [
+                self.tool("clang"),
+                f"-O{self.s.opt_level}",
+                "-S", "-emit-llvm",
+                *self._python_cflags(),
+                str(c), "-o", str(out),
+            ]
+        self._run(cmd)
+        return out
 
     def _opt_args(self) -> List[str]:
         args = [self.tool("opt"), f"-load-pass-plugin={self.plugin}"]
@@ -296,13 +400,20 @@ class ShadowCompiler:
         # Link a positional, hardened executable.
         # `-no-pie` is required once string globals become writable (.data).
         out = self._final_path(obj, "exe")
-        cmd = [self.tool("clang"), "-no-pie", str(obj), "-o", str(out)]
+        if self._lang == "cpp":
+            link = [self.tool("cxx"), "-no-pie", str(obj), "-lstdc++"]
+        elif self._lang == "python":
+            link = [self.tool("clang"), "-no-pie", str(obj)]
+            link += self._python_ldflags()
+        else:
+            link = [self.tool("clang"), "-no-pie", str(obj)]
+        link += ["-o", str(out)]
         if triple:
             # Cross-link through clang: on Debian/Ubuntu it discovers the cross
             # GCC toolchain (e.g. gcc-aarch64-linux-gnu) automatically.
-            cmd[1:1] = [f"--target={triple}"]
+            link[1:1] = [f"--target={triple}"]
         try:
-            self._run(cmd)
+            self._run(link)
         except PipelineError as exc:
             if triple:
                 raise PipelineError(

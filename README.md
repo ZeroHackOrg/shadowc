@@ -165,6 +165,25 @@ cmp -s a.bin b.bin; echo $? # different -> per-build polymorphism
 
 ---
 
+## Languages
+
+Hardening runs at LLVM-IR level, so the support boundary is "front-ends that
+hand us IR we can re-link":
+
+| Language | Front-end | Status |
+|---|---|---|
+| C | `clang` driver | full (equivalence farm, all tiers) |
+| C++ | `clang++` driver | full — fixtures cover `std::vector`, `std::string`, ctors, exceptions |
+| Python | Cython (`--embed`) | full — the Python program is compiled to C, then hardened with the identical pipeline |
+| Go | — | in-place IR hardening is **not** possible (no clang-front-ended IR). Supported: harden the **native cgo boundary** (`examples/golang_cgo/`); documented, tested |
+| Rust | `rustc --emit=llvm-ir` | documented; untested (see `docs/TESTING.md` §9) |
+
+Go/Python/Rust input is only ever *routed* to the correct lane or rejected
+with guidance — never silently mis-handled. Details and limits live in
+[`docs/TESTING.md`](docs/TESTING.md).
+
+---
+
 ## Repository layout
 
 ```
@@ -193,6 +212,9 @@ tests/, examples/      pytest suite + firmware demo
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — design, threat model, pipeline,
   Split-Core gate semantics.
 - [`docs/PASSES.md`](docs/PASSES.md) — every pass, IR-level before/after, limits.
+- [`docs/TESTING.md`](docs/TESTING.md) — the correctness model: what the suite
+  proves, what it does **not** prove, coverage matrix, failure semantics,
+  release gate. Read before trusting a green run.
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — hacking, testing, LLVM API notes.
 - [`docs/COMMERCIAL.md`](docs/COMMERCIAL.md) — licensing, vault unlock, salt lifecycle.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — what ships next.

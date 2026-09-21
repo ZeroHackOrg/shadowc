@@ -40,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="tier to run: community (public), enterprise (licence), min",
     )
     p.add_argument(
+        "--lang",
+        default="auto",
+        choices=["auto", "c", "cpp", "python", "ir"],
+        help="pipeline language (default: from source extension)",
+    )
+    p.add_argument(
         "--emit",
         default="exe",
         choices=["exe", "obj", "ll"],
@@ -75,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help="write a JSON build manifest (input hash, seed, passes, artifact hash, runtime smoke)",
+    )
+    p.add_argument(
+        "--link-flags",
+        default=None,
+        metavar="FLAGS",
+        help="extra native link flags for the final exe (e.g. python lane linkage)",
     )
     p.add_argument("--status", action="store_true", help="print toolchain status and exit")
     p.add_argument("-V", "--version", action="version", version=f"shadowc {__version__}")
@@ -118,6 +130,7 @@ def main(argv=None) -> int:
         output=args.output,
         target=args.target,
         level=args.level,
+        lang=args.lang,
         emit=args.emit,
         seed=args.seed,
         opt_level=args.opt_level,
@@ -128,6 +141,7 @@ def main(argv=None) -> int:
         salt=args.salt,
         force_passes=args.passes.split(",") if args.passes else None,
         manifest=args.manifest,
+        link_flags=args.link_flags.split() if args.link_flags else None,
     )
 
     try:

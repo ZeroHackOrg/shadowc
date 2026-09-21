@@ -53,6 +53,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Cross-target `--emit exe`: link failures now report a precise hint (install
   `gcc-aarch64-linux-gnu` or use `--emit obj`) instead of a raw `ld` trace.
 
+## [Unreleased]
+
+### Added
+
+- **Multi-language support** at the IR level: C++ via the `clang++` driver and
+  Python via compiled-C Cython (`--lang python`, embedded standalone main).
+  Go is rejected with guidance and hardens through the **native cgo
+  boundary** (`examples/golang_cgo/`, enterprise tier). `--lang`/`--link-flags`
+  CLI options; manifests carry the `language`.
+- **`docs/TESTING.md`** — an honest, reviewable correctness model: layered
+  verification, coverage matrix, failure semantics, fixture-authoring rules,
+  release gate, and the explicit list of what a green suite does **not** prove.
+- Multi-language fixture lanes: `tests/fixtures_cpp/rtx.cpp` (vector/string/
+  ctor/exception), `tests/fixtures_py/py_arith.py` (Cython embed), Go cgo
+  archive equivalence — all plain == hardened == golden.
+
 ## [0.5.0] - 2026-09
 
 ### Added

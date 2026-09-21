@@ -17,7 +17,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-BIN_ALIASES = {"clang": ("clang-18", "clang"), "opt": ("opt-18", "opt"), "llc": ("llc-18", "llc")}
+BIN_ALIASES = {
+    "clang": ("clang-18", "clang"),
+    "cxx": ("clang++-18", "clang++-17", "clang++"),
+    "opt": ("opt-18", "opt"),
+    "llc": ("llc-18", "llc"),
+}
 
 # The CI matrix runs the same pass + equivalence suites at several -O levels;
 # locally the default stays -O1.
