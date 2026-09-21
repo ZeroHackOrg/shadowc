@@ -57,7 +57,7 @@ static cl::opt<uint32_t> InitCap(
 static bool eligible(const GlobalVariable &GV) {
   if (!GV.hasInitializer() || GV.isThreadLocal() || GV.hasAppendingLinkage())
     return false;
-  if (GV.getName().startswith("shadowc.") || GV.getName().startswith("llvm."))
+  if (GV.getName().starts_with("shadowc.") || GV.getName().starts_with("llvm."))
     return false;
   const Constant *Init = GV.getInitializer();
   // ConstantInt scalars, or integer arrays (i16/i32/i64); strings (i8) are

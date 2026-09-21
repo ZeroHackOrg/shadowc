@@ -108,7 +108,10 @@ jobs:
           cmake --build build -j$(nproc)
       - name: Pass suite under ASan
         run: |
+          # The sanitized plugin dlopen'd into a stock opt needs the ASan
+          # runtime loaded first, else every opt invocation fails to load it.
           export ASAN_OPTIONS=detect_leaks=0
+          export LD_PRELOAD="$(gcc -print-file-name=libasan.so)"
           python3 -m pytest tests/test_obfuscation_passes.py \
             tests/test_vault_passes.py tests/test_equivalence.py \
             tests/test_multilang.py -q
