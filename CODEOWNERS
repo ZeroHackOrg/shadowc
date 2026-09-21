@@ -1,0 +1,19 @@
+# Default owners (admin group) + per-area maintainers
+*                             @shadowc-core
+
+# License gate / Split-Core seam - sensitive
+src/gatekeeper.py             @shadowc-core @shadowc-licensed
+vault/                        @shadowc-core @shadowc-licensed
+tools/gen_license.py          @shadowc-core @shadowc-licensed
+
+# Pass plugin
+lib/passes/                   @shadowc-core @shadowc-llvm
+
+# Pipeline / CLI
+src/shadowc/                  @shadowc-core
+tests/                        @shadowc-core
+
+# Docs / CI / packaging
+docs/                         @shadowc-core @shadowc-docs
+.github/                      @shadowc-core
+examples/                     @shadowc-core @shadowc-docs

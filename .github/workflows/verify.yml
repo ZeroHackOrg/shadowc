@@ -1,0 +1,125 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        llvm: ["18", "19"]
+        optlevel: ["-O1", "-O0", "-O2"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.llvm }}" = "18" ]; then
+            sudo apt-get install -y llvm-18 llvm-18-dev clang-18
+            LLVM_PREFIX=/usr/lib/llvm-18
+          else
+            wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+            echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+            sudo apt-get update
+            sudo apt-get install -y llvm-19 llvm-19-dev clang-19
+            LLVM_PREFIX=/usr/lib/llvm-19
+          fi
+          sudo apt-get install -y cmake build-essential python3 python3-pytest \
+            gcc-aarch64-linux-gnu strace
+          echo "LLVM_PREFIX=$LLVM_PREFIX" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DLT_LLVM_INSTALL_DIR=$LLVM_PREFIX \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build plugin
+        run: cmake --build build -j$(nproc)
+
+      - name: Toolchain linter
+        run: python3 tools/check_toolchain.py
+
+      - name: Python unit tests
+        run: python3 -m pytest tests/test_pipeline.py tests/test_gatekeeper.py -q
+
+      - name: Pass + equivalence tests (${{ matrix.optlevel }})
+        run: |
+          export SHADOWC_TEST_OPTLEVEL="${{ matrix.optlevel }}"
+          python3 -m pytest tests/test_obfuscation_passes.py \
+            tests/test_vault_passes.py tests/test_equivalence.py -q
+
+      - name: Host end-to-end (community)
+        run: |
+          ./bin/shadowc examples/firmware_template.c -o /tmp/secure.bin
+          /tmp/secure.bin | grep -q "crc=54313c60"
+
+      - name: Host end-to-end (enterprise, string-free)
+        run: |
+          python3 tools/gen_license.py --client ci --salt ZH_COMMUNITY_DEMO_2026 > /tmp/lic.txt
+          TOKEN=$(awk '/^token/{print $3}' /tmp/lic.txt)
+          SHADOWC_TOKEN=$TOKEN ./bin/shadowc --level enterprise --client-id ci \
+            --manifest /tmp/manifest.json \
+            examples/firmware_template.c -o /tmp/secure_ent.bin
+          if strings /tmp/secure_ent.bin | grep -qi secret; then
+            echo "::error::plaintext secret leaked in enterprise build"
+            exit 1
+          fi
+          python3 -c "import json,sys; d=json.load(open('/tmp/manifest.json')); assert d['passes'], d"
+
+      - name: Determinism (seed) + salt rotation
+        run: |
+          TOKEN=$(awk '/^token/{print $3}' /tmp/lic.txt)
+          ./bin/shadowc --seed 7 examples/firmware_template.c -o /tmp/a.bin
+          ./bin/shadowc --seed 7 examples/firmware_template.c -o /tmp/b.bin
+          cmp /tmp/a.bin /tmp/b.bin
+          SHADOWC_TOKEN=$TOKEN ./bin/shadowc --seed 7 --level enterprise --client-id ci \
+            examples/firmware_template.c -o /tmp/pol1.bin
+          SHADOWC_TOKEN=$TOKEN ./bin/shadowc --seed 7 --level enterprise --client-id ci \
+            examples/firmware_template.c -o /tmp/pol2.bin
+          cmp /tmp/pol1.bin /tmp/pol2.bin
+
+      - name: Cross arm64 (object + exe)
+        run: |
+          ./bin/shadowc --target arm64 examples/firmware_template.c -o /tmp/secure_arm64.bin
+          file /tmp/secure_arm64.bin | grep -q aarch64
+
+  sanitizer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18 llvm-18-dev clang-18 cmake \
+            build-essential python3 python3-pytest
+      - name: Configure + build (ASan)
+        run: |
+          cmake -S . -B build \
+            -DLT_LLVM_INSTALL_DIR=/usr/lib/llvm-18 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build -j$(nproc)
+      - name: Pass suite under ASan
+        run: |
+          export ASAN_OPTIONS=detect_leaks=0
+          python3 -m pytest tests/test_obfuscation_passes.py \
+            tests/test_vault_passes.py tests/test_equivalence.py -q
+
+  gate-negative:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gate negative-path (no token must fail cleanly)
+        run: |
+          mkdir -p build
+          if SHADOWC_TOKEN= ./bin/shadowc --level enterprise \
+            --client-id ci examples/firmware_template.c -o /tmp/x.bin 2>/dev/null; then
+            echo "::error::vault unlock must not succeed without a token"
+            exit 1
+          fi
+          echo "gate correctly rejected unlicensed enterprise build"

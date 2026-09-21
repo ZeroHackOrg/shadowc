@@ -1,0 +1,25 @@
+# build
+/build/
+/cmake-build-*/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# toolchain temps
+tmp/
+*.o
+*.ll
+*.bc
+
+# hardened outputs
+*.hardened
+*.hardened.bin
+
+# local config
+.env
+*.local

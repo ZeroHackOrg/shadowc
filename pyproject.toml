@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shadowc"
+version = "0.5.0"
+description = "Shadow-Compile: LLVM IR obfuscation engine (Split-Core: community core + licensed enterprise vault)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT (community core); Enterprise Vault is separately licensed - see LICENSE" }
+authors = [{ name = "ZeroHack Labs", email = "labs@zerohack.org" }]
+keywords = ["llvm", "obfuscation", "reverse-engineering", "compiler", "security"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Compilers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+shadowc = "shadowc.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
