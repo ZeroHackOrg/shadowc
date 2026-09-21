@@ -12,6 +12,7 @@ toolchain is missing - the C and pass suites never are.
 """
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -52,9 +53,14 @@ def harden(env, source, work, tier="community", seed=7, **overrides):
     return comp.run()
 
 
+def cxx_flags():
+    """Mirror of the pipeline's SHADOWC_CXXFLAGS escape hatch."""
+    return shlex.split(os.environ.get("SHADOWC_CXXFLAGS", ""))
+
+
 def plain_cxx(env, source, work):
     exe = work / "plain"
-    run([env["toolchain"]["cxx"], env["optlevel"], str(source), "-o", str(exe)])
+    run([env["toolchain"]["cxx"], *cxx_flags(), env["optlevel"], str(source), "-o", str(exe)])
     return str(exe)
 
 
@@ -81,16 +87,24 @@ def test_cpp_pipeline_preserves_semantics(env, tmp_work, tier):
     assert hardened == expected
 
 
-@pytest.mark.parametrize("tier", ["community", "enterprise"])
-def test_python_cython_pipeline_preserves_semantics(env, tmp_work, tier):
+def test_python_cython_pipeline_preserves_semantics(env, tmp_work):
+    """The Python (Cython) lane is an Enterprise Vault feature."""
     if not (shutil.which("cython") or shutil.which("cython3")):
         pytest.skip("Cython not installed (pip install cython)")
     src = HERE / "fixtures_py" / "py_arith.py"
     expected = (EXPECTED / "py_arith.txt").read_text()
     plain = run([plain_python(env, src, tmp_work)]).stdout
     assert plain == expected
-    hardened = run([harden(env, src, tmp_work, tier, lang="python")]).stdout
+    hardened = run([harden(env, src, tmp_work, "enterprise", lang="python")]).stdout
     assert hardened == expected
+
+
+def test_python_lane_rejected_without_enterprise_license(env, tmp_work):
+    """'requiring paid': the Python lane must refuse community/min tiers."""
+    src = HERE / "fixtures_py" / "py_arith.py"
+    for tier in ("community", "min"):
+        with pytest.raises(PipelineError, match="Enterprise Vault"):
+            harden(env, src, tmp_work / tier, tier, lang="python")
 
 
 def test_go_input_is_rejected_with_guidance(env, tmp_work):

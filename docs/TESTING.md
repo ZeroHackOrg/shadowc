@@ -71,14 +71,18 @@ hardenable IR surface:
   `std::vector`, `std::string` builders, a constructor-priority static global,
   and an exception (`throw/catch`) path. Plain == community == enterprise.
 - **Python** via **Cython** (`--embed`, standalone CPython main): `py_arith.py`
-  is compiled to C, then hardened with the identical IR pipeline.
+  is compiled to C, then hardened with the identical IR pipeline. The lane is
+  **Enterprise-Vault-gated**: community/min tiers are refused up front with an
+  actionable "mint a token" error (asserted in
+  `test_python_lane_rejected_without_enterprise_license`); enterprise runs
+  prove plain == hardened == golden and plaintext-free output.
   `python3-dev` is required; the test skips when Cython is missing.
 - **Go**: Go has **no** clang-front-ended IR pipeline, so Go source itself is
   *rejected with actionable guidance* (asserted). The supported hardening
   surface is the **native cgo boundary**: `examples/golang_cgo/native.c` is
-  built by shadowc (enterprise tier), archived, and cgo-linked from
-  `main.go`; a `go build` of the plain vs hardened archive must emit identical
-  output. Requires a `go` toolchain; skips when absent.
+  built by shadowc (enterprise tier) via `build_native.sh`, archived, and
+  cgo-linked from `main.go`; a `go build` of the plain vs hardened archive must
+  emit identical output. Requires a `go` toolchain; skips when absent.
 - A `.pyx` and `.rs` inputs are explicitly routed with clear errors rather
   than silently mis-handled.
 
@@ -91,8 +95,11 @@ hardenable IR surface:
 - `--seed 7` twice → `cmp` byte-equal (determinism)
 - vault enterprise `--seed 7` twice → byte-equal; `SHADOWC_SALT=A/B` →
   byte-different (per-vendor rotation)
-- arm64 cross object emission (`file` → aarch64)
+- arm64 cross **object** and **exe** emission/link (`file` → aarch64; local
+  `test_targets.py` + CI cross step)
 - unlicensed enterprise build fails cleanly (gate negative path)
+- trap-under-tracer fail-closed `exit(173)` — local now that strace is
+  installed, and in CI
 
 ### L6 — CI matrix
 `.github/workflows/verify.yml` runs the L2/L3/L4 suites under
@@ -108,7 +115,8 @@ Python lane; `strace` for the trap-under-tracer path.
 | opt levels | `-O0`, `-O1`, `-O2` (LLVM 18 local; 19 in CI) | `-O3`, `-Os`, cross-arch opt variants |
 | LLVM | 18 (local), 19 (CI) | ≥ 16 (code claims support, no CI) |
 | tiers | min, community, enterprise (all 8 passes) | — |
-| targets | host x86_64; arm64/aarch64 object emission | arm64 **exe** link (needs cross-gcc on the runner); arm32, riscv |
+| targets | host x86_64; arm64 object + exe link (local + CI, apt `gcc-aarch64-linux-gnu`) | arm32, riscv |
+| Python lane | gated to **enterprise**; community/min rejection + enterprise plain-equivalence both asserted | — |
 | semantics | fixture corpus, golden-pinned | arbitrary user programs (see §4) |
 | sanitizers | ASan+UBSan CI lane on pass suite | MSan, TSan |
 
@@ -127,10 +135,10 @@ The following are true, by design — a green suite does **not** cover them:
    catches invalid IR (the classic width/PHI/GEP bugs) at build time, but
    "verify passed" does not prove semantic preservation in the corners above.
 3. **Environment surface is wider than what a laptop/CI has.** Anything not
-   exercised locally is: LLVM 19 *locally* (CI only), `strace` anti-debug
-   behavior (skipped when strace is missing), arm64 **exe** linking (requires
-   `gcc-aarch64-linux-gnu`), Python lane without `python3-dev`, Go without a
-   `go` toolchain. Those tests *skip*, not fail — a skipped row is an
+   exercised locally: LLVM 19 (CI only), arm32, riscv, LLVM ≥ 16, Go without
+   the `go` toolchain. `strace` and `gcc-aarch64-linux-gnu` are now installed
+   locally, so trap-under-tracer and arm64 exe-link are verified here too.
+   Tests for genuinely missing tools *skip*, not fail — a skipped row is an
    unverified claim.
 4. **A single seed is not the whole polymorphic space.** Two builds may
    exercise different pred/int-substitution shapes for the same source; the
@@ -151,7 +159,8 @@ The following are true, by design — a green suite does **not** cover them:
 | `LLVM ERROR: Broken module found` / opt verify crash | a pass emitted invalid IR — a **hard blocker** | fix the pass (see lib/passes); add a regression fixture that triggered it |
 | output mismatch (plain vs hardened vs golden) | semantic regression | fix the pass; never "update" the expected file to paper over it. `crc_nested` is deliberately pinned to catch this class permanently |
 | structural assertion fails (e.g. eval32 missing) | mitigation not actually injected (fraction/seed draw or pass skip) | check `-fraction` knobs / seed / whether the function is exempt (`shadowc-skip`) |
-| suite skips | environment lacks a tool (strace/go/cython/python3-dev) | run the step in CI, or `pip install cython` / install dev packages locally |
+| suite skips | environment lacks a tool (go/cython/python3-dev/cross-gcc) | run the step in CI, or `pip install cython` / apt install the missing tool |
+| Python lane at community/min | user tried a paid feature unlicensed | intentional: `_emit_ir` refuses; mint a token + `--level enterprise` |
 | L1 failures | orchestration regressions (pipeline strings, gate, CLI) | fix `src/shadowc/*`, `src/gatekeeper.py` |
 
 ## 6. Running the suite
@@ -197,9 +206,9 @@ A release is "done" only when all of
 - [ ] CI matrix green (LLVM 19, ASan/UBSan lane, gate-negative lane)
 - [ ] enterprise build: plaintext-free, deterministic under `--seed`, runtime
       identical to plain, manifest intact
-- [ ] arm64 object emission verified; exe link verified where the runner has
-      cross-gcc
-- [ ] C++, Python (Cython), and Go (cgo archive) lanes green
+- [ ] arm64 object emission **and exe link** verified (cross-gcc installed)
+- [ ] C++ lane green; Python (Cython) lane green at **enterprise** and its
+      community/min rejection asserted; Go (cgo archive) lane green
 - [ ] docs: CHANGELOG + TESTING matrix updated; README sample versions
       consistent
 

@@ -53,8 +53,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Cross-target `--emit exe`: link failures now report a precise hint (install
   `gcc-aarch64-linux-gnu` or use `--emit obj`) instead of a raw `ld` trace.
 
-## [Unreleased]
-
 ### Added
 
 - **Multi-language support** at the IR level: C++ via the `clang++` driver and
@@ -68,6 +66,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Multi-language fixture lanes: `tests/fixtures_cpp/rtx.cpp` (vector/string/
   ctor/exception), `tests/fixtures_py/py_arith.py` (Cython embed), Go cgo
   archive equivalence — all plain == hardened == golden.
+- **Python lane is Enterprise-Vault-gated**: `--lang python` at community/min
+  is refused with a "mint a token — use `--level enterprise`" error
+  (`test_python_lane_rejected_without_enterprise_license`); the enterprise
+  lane is asserted equal to plain and plaintext-free.
+- **Arm64 cross-*exe* links locally**: target triples now use the Debian
+  spelling `aarch64-linux-gnu` so clang discovers the system cross toolchain
+  (`--target arm64 --emit exe` → real EM_AARCH64 ELF); `tests/test_targets.py`
+  locks it in. The earlier `-unknown-` triple silently fell back to the host
+  linker and failed.
+- **`golang_cgo` made operational**: `examples/golang_cgo/build_native.sh`
+  (shadowc → `ar` → cgo-able `libshadownative.a`) + README with the full
+  mint → harden → `go build` flow.
+- Local verification widened: `gcc-aarch64-linux-gnu` + `strace` installed, so
+  the trap-under-tracer fail-closed `exit(173)` and cross-exe link are now
+  exercised in the local suite, not only CI.
+- **C++ lane toolchain-skew escape hatch**: `SHADOWC_CXXFLAGS` (mirrored by the
+  C++ fixture tests) lets a clang driver pin a compatible libstdc++ install
+  (e.g. `--gcc-install-dir=.../15`) — needed once a distro ships GCC-16
+  headers clang-18 can't parse.
 
 ## [0.5.0] - 2026-09
 

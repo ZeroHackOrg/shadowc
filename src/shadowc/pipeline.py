@@ -9,6 +9,7 @@ drives the LLVM command-line toolchain.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -65,10 +66,13 @@ _LANG_BY_SUFFIX = {
 
 _TARGET_TRIPLES = {
     "host": None,  # native
-    "arm64": "aarch64-unknown-linux-gnu",
-    "aarch64": "aarch64-unknown-linux-gnu",
-    "amd64": "x86_64-unknown-linux-gnu",
-    "x86_64": "x86_64-unknown-linux-gnu",
+    # Debian/Ubuntu cross toolchains ship as <triple>-gcc; clang-18 discovers
+    # them by exact triple match, so `aarch64-linux-gnu` (NOT the -unknown-
+    # spelling) is what lets a cross link work out of the box.
+    "arm64": "aarch64-linux-gnu",
+    "aarch64": "aarch64-linux-gnu",
+    "amd64": "x86_64-linux-gnu",
+    "x86_64": "x86_64-linux-gnu",
 }
 
 
@@ -316,6 +320,15 @@ class ShadowCompiler:
             raise PipelineError("python lane needs python3-config --ldflags (install python3-dev)")
         return proc.stdout.split()
 
+    def _cpp_extra(self) -> List[str]:
+        """Extra flags for the C++ driver, from $SHADOWC_CXXFLAGS.
+
+        Escape hatch for clang-vs-libstdc++ skew (e.g. clang-18 with the
+        newest distro GCC headers): set it to the compatible GCC install, e.g.
+        SHADOWC_CXXFLAGS="--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/15"
+        """
+        return shlex.split(os.environ.get("SHADOWC_CXXFLAGS", ""))
+
     def _emit_ir(self, source: Path, tmpdir: Path) -> Path:
         lang = getattr(self, "_lang", None) or self._lang_of(source)
         if lang == "ir":
@@ -344,12 +357,21 @@ class ShadowCompiler:
         elif lang == "cpp":
             cmd = [
                 self.tool("cxx"),
+                *self._cpp_extra(),
                 f"-O{self.s.opt_level}",
                 "-S", "-emit-llvm",
                 "-Xclang", "-disable-O0-optnone",
                 str(source), "-o", str(out),
             ]
         else:  # python
+            # The Python (Cython) lane is an Enterprise Vault feature: it is a
+            # product surface, so community/min tiers must refuse it up front.
+            if self.s.level != "enterprise":
+                raise PipelineError(
+                    "the Python (Cython) lane is an Enterprise Vault feature. "
+                    "Mint a vault token (tools/gen_license.py) and build with "
+                    "--level enterprise --token <token>."
+                )
             c = self._cythonize(source, tmpdir)
             cmd = [
                 self.tool("clang"),
@@ -401,7 +423,7 @@ class ShadowCompiler:
         # `-no-pie` is required once string globals become writable (.data).
         out = self._final_path(obj, "exe")
         if self._lang == "cpp":
-            link = [self.tool("cxx"), "-no-pie", str(obj), "-lstdc++"]
+            link = [self.tool("cxx"), *self._cpp_extra(), "-no-pie", str(obj), "-lstdc++"]
         elif self._lang == "python":
             link = [self.tool("clang"), "-no-pie", str(obj)]
             link += self._python_ldflags()

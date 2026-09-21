@@ -174,8 +174,8 @@ hand us IR we can re-link":
 |---|---|---|
 | C | `clang` driver | full (equivalence farm, all tiers) |
 | C++ | `clang++` driver | full — fixtures cover `std::vector`, `std::string`, ctors, exceptions |
-| Python | Cython (`--embed`) | full — the Python program is compiled to C, then hardened with the identical pipeline |
-| Go | — | in-place IR hardening is **not** possible (no clang-front-ended IR). Supported: harden the **native cgo boundary** (`examples/golang_cgo/`); documented, tested |
+| Python | Cython (`--embed`) | **Enterprise Vault** — compiled to C, hardened with the identical pipeline; community/min are refused with a "mint a token" error |
+| Go | — | in-place IR hardening is **not** possible (no clang-front-ended IR). Supported: harden the **native cgo boundary** (`examples/golang_cgo/` + `build_native.sh`, enterprise vault); documented, tested |
 | Rust | `rustc --emit=llvm-ir` | documented; untested (see `docs/TESTING.md` §9) |
 
 Go/Python/Rust input is only ever *routed* to the correct lane or rejected

@@ -60,6 +60,21 @@ llc-18 hardened.ll -o hardened.o
 `--keep-temps` on the CLI preserves the intermediate `hardened.ll`/`.o`/`.exe`
 for inspection instead of cleaning the temp dir.
 
+## Toolchain skew escape hatches
+
+clang and the distro's libstdc++ can disagree (e.g. clang-18 vs the newest
+Debian/Kali GCC 16 headers: `clang++` rejects `__normal_iterator`'s
+`decltype(base() - base())`). The C++ lanes honor two env vars so CI and
+laptops are not at the mercy of the newest system GCC:
+
+- `SHADOWC_CXX` — alternate C++ driver (already documented above)
+- `SHADOWC_CXXFLAGS` — extra driver flags, applied to both the IR-emit and the
+  link. Pin a known-good GCC install with:
+  `SHADOWC_CXXFLAGS="--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/15"`
+
+`tests/test_multilang.py` mirrors the exact same flag through its plain-build
+side so the plain == hardened equality stays honest under the override.
+
 ## Python layer
 
 - `src/shadowc/pipeline.py` — orchestration only. No LLVM bindings, no
