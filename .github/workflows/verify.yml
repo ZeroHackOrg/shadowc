@@ -13,7 +13,7 @@ jobs:
         llvm: ["18", "19"]
         optlevel: ["-O1", "-O0", "-O2"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install LLVM
         run: |
@@ -93,7 +93,7 @@ jobs:
   sanitizer:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -116,7 +116,7 @@ jobs:
   gate-negative:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Gate negative-path (no token must fail cleanly)
         run: |
           mkdir -p build
